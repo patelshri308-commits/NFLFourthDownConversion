@@ -1,0 +1,7 @@
+{
+    "python.defaultInterpreterPath": "/Users/shri/Desktop/NFLFourthDownConversion/.venv/bin/python",
+    "jupyter.jupyterServerType": "local",
+    "jupyter.useDefaultConfigForJupyter": true,
+    "python-envs.pythonProjects": [],
+    "python-envs.defaultEnvManager": "ms-python.python:system"
+}
