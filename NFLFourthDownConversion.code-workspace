@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"jupyter.useDefaultConfigForJupyter": true,
+		"python-envs.defaultEnvManager": "ms-python.python:system"
+	}
+}
