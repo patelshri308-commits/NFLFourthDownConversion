@@ -1,10 +1,43 @@
+import pandas as pd
 import streamlit as st
+from sklearn.ensemble import RandomForestClassifier
 
 st.title("NFL Fourth-Down Decision Simulator")
 
 st.write(
     "Estimate whether going for it on fourth down is reasonable based on distance, field position, score state, and time remaining."
 )
+
+@st.cache_data
+def load_data():
+    return pd.read_csv("fourth_down_model_data.csv")
+
+@st.cache_resource
+def train_model(data):
+    situation_dummies = pd.get_dummies(data["situation"], prefix="situation")
+
+    X = pd.concat(
+        [
+            data[["score_differential", "game_seconds_remaining"]],
+            situation_dummies
+        ],
+        axis=1
+    )
+
+    y = data["converted"]
+
+    model = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=5,
+        random_state=42
+    )
+
+    model.fit(X, y)
+
+    return model, X.columns
+
+data = load_data()
+model, model_columns = train_model(data)
 
 st.divider()
 
@@ -34,29 +67,39 @@ game_seconds_remaining = st.slider(
     900
 )
 
-st.divider()
-
-st.subheader("Estimated Decision")
-
-# Simple Version 1 prototype logic
-# Later, this will be replaced with the trained conversion probability model.
-
+# Distance bucket
 if yards_to_go <= 2:
-    conversion_probability = 0.70
+    distance_bucket = "Short"
 elif yards_to_go <= 5:
-    conversion_probability = 0.50
+    distance_bucket = "Medium"
 else:
-    conversion_probability = 0.25
+    distance_bucket = "Long"
 
-# Slight adjustment for score/time context
-if score_differential < 0 and game_seconds_remaining < 900:
-    conversion_probability += 0.05
-elif score_differential > 7:
-    conversion_probability -= 0.03
+# Field zone
+if yardline_100 <= 20:
+    field_zone = "Red Zone"
+elif yardline_100 <= 50:
+    field_zone = "Opponent Territory"
+elif yardline_100 <= 80:
+    field_zone = "Midfield Area"
+else:
+    field_zone = "Own Territory"
 
-conversion_probability = max(0.05, min(conversion_probability, 0.95))
+situation = f"{distance_bucket}_{field_zone}"
+situation_col = f"situation_{situation}"
 
-# Estimate success value based on field position
+# Build model input row
+input_row = pd.DataFrame(0, index=[0], columns=model_columns)
+
+input_row.loc[0, "score_differential"] = score_differential
+input_row.loc[0, "game_seconds_remaining"] = game_seconds_remaining
+
+if situation_col in input_row.columns:
+    input_row.loc[0, situation_col] = 1
+
+conversion_probability = model.predict_proba(input_row)[0, 1]
+
+# Expected points logic
 if yardline_100 <= 20:
     ep_success = 3.0
 elif yardline_100 <= 50:
@@ -64,7 +107,6 @@ elif yardline_100 <= 50:
 else:
     ep_success = 1.5
 
-# Estimate failure cost based on field position
 if yardline_100 <= 20:
     ep_failure = -0.8
 elif yardline_100 <= 50:
@@ -78,6 +120,10 @@ ev_go = (
     (1 - conversion_probability) * ep_failure
 )
 
+st.divider()
+
+st.subheader("Estimated Decision")
+
 st.metric("Conversion Probability", f"{conversion_probability:.1%}")
 st.metric("Expected Value of Going For It", round(ev_go, 2))
 
@@ -88,17 +134,19 @@ else:
 
 st.divider()
 
-st.subheader("How to Read This")
+st.subheader("Model Context")
 
-st.write("""
-- **Conversion Probability** estimates the chance of successfully gaining the required yards.
-- **Expected Value** compares the benefit of converting against the cost of failing.
-- A positive expected value suggests going for it may be reasonable.
-- A negative expected value suggests the risk may outweigh the reward.
+st.write(f"""
+**Situation Type:** {situation}  
+
+- **Distance Bucket:** {distance_bucket}
+- **Field Zone:** {field_zone}
+- **Score Differential:** {score_differential}
+- **Game Seconds Remaining:** {game_seconds_remaining}
 """)
 
 st.divider()
 
 st.caption(
-    "Version 1 prototype. This simulator uses simplified decision logic for now and will later be connected to the trained fourth-down conversion model."
+    "Version 1 prototype. Conversion probability is estimated using a Random Forest model trained on nflverse fourth-down attempt data. Expected value logic is simplified and intended for analytical/educational purposes."
 )
