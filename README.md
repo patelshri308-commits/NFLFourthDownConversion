@@ -1,15 +1,15 @@
-NFL Fourth-Down Decision Simulator
+**NFL Fourth-Down Decision Simulator**
 
 An interactive sports analytics project focused on modeling NFL fourth-down decision-making using historical play-by-play data from nflverse. The project combines exploratory data analysis, machine learning, feature engineering, and expected value modeling to evaluate whether teams should go for it on fourth down in different game situations.
 
-Live App
+**Live App**
 
 Try the interactive simulator here:
 NFL Fourth-Down Decision Simulator￼
 
 ⸻
 
-Project Goals
+**Project Goals**
 
 This project was designed to explore how NFL teams behave on fourth down and how factors such as:
 
@@ -28,7 +28,7 @@ The project evolved from exploratory analytics into a decision-support simulator
 
 ⸻
 
-Features
+**Features**
 
 * Exploratory fourth-down analytics using nflverse play-by-play data
 * Logistic Regression and Random Forest modeling
@@ -40,14 +40,14 @@ Features
 
 ⸻
 
-Example Simulator Inputs
+**Example Simulator Inputs**
 
 * 4th & distance
 * field position
 * score differential
 * time remaining
 
-Example Outputs
+**Example Outputs**
 
 * estimated conversion probability
 * expected value of going for it
@@ -56,7 +56,7 @@ Example Outputs
 
 ⸻
 
-Key Analytical Findings
+**Key Analytical Findings**
 
 * Short-yardage situations produce the strongest positive conversion signals.
 * Field position becomes significantly more meaningful when combined with distance.
@@ -65,7 +65,7 @@ Key Analytical Findings
 
 ⸻
 
-Models Used
+**Models Used**
 
 Logistic Regression
 
@@ -77,7 +77,7 @@ Used to capture nonlinear relationships and contextual interaction effects betwe
 
 ⸻
 
-Data Sources
+**Data Sources**
 
 * nflverse play-by-play dataset
     nflverse Play-by-Play Data￼
@@ -86,7 +86,7 @@ Data Sources
 
 ⸻
 
-Technologies Used
+**Technologies Used**
 
 * Python
 * pandas
@@ -96,7 +96,7 @@ Technologies Used
 
 ⸻
 
-Version 1 Limitations
+**Version 1 Limitations**
 
 This project is currently a Version 1 prototype and has several intentionally simplified components:
 
@@ -115,8 +115,8 @@ Future iterations may include:
 
 ⸻
 
-Author
+**Author**
 
-Shri Patel
+**Shri Patel**
 
 * LinkedIn: https://www.linkedin.com/in/shripatel2003
