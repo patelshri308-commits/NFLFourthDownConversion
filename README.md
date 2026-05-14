@@ -4,8 +4,8 @@ An interactive sports analytics project focused on modeling NFL fourth-down deci
 
 **Live App**
 
-Try the interactive simulator here:
-NFL Fourth-Down Decision Simulator￼
+Try the interactive simulator here: 
+[NFL Fourth-Down Decision Simulator](https://nflfourthdownconversion.streamlit.app/)
 
 ⸻
 
