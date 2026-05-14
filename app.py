@@ -66,6 +66,10 @@ game_seconds_remaining = st.slider(
     3600,
     900
 )
+st.info(
+    f"Situation: 4th & {yards_to_go} from the {yardline_100}-yardline "
+    f"with {game_seconds_remaining} seconds remaining."
+)
 
 # Distance bucket
 if yards_to_go <= 2:
@@ -99,6 +103,13 @@ if situation_col in input_row.columns:
 
 conversion_probability = model.predict_proba(input_row)[0, 1]
 
+if conversion_probability >= 0.70:
+    confidence = "High"
+elif conversion_probability >= 0.45:
+    confidence = "Moderate"
+else:
+    confidence = "Low"
+
 # Expected points logic
 if yardline_100 <= 20:
     ep_success = 3.0
@@ -126,11 +137,39 @@ st.subheader("Estimated Decision")
 
 st.metric("Conversion Probability", f"{conversion_probability:.1%}")
 st.metric("Expected Value of Going For It", round(ev_go, 2))
+st.metric("Conversion Confidence", confidence)
 
 if ev_go > 0:
     st.success("Recommendation: Go For It")
 else:
     st.error("Recommendation: Do Not Go For It")
+
+st.subheader("Decision Explanation")
+
+if ev_go > 0:
+    st.write(
+        "The model recommends going for it because the expected value is positive. "
+        "This means the estimated reward of converting outweighs the estimated cost of failing."
+    )
+else:
+    st.write(
+        "The model recommends not going for it because the expected value is negative. "
+        "This means the estimated cost of failing outweighs the estimated reward of converting."
+    )
+
+if yards_to_go <= 2:
+    st.write("- Short yardage improves the likelihood of conversion.")
+elif yards_to_go <= 5:
+    st.write("- Medium distance creates a more balanced risk/reward decision.")
+else:
+    st.write("- Long distance lowers the likelihood of conversion.")
+
+if yardline_100 <= 20:
+    st.write("- Red zone field position increases the value of converting but also changes the risk profile.")
+elif yardline_100 <= 50:
+    st.write("- Opponent territory creates a strong decision point because punting or kicking may have limited value.")
+else:
+    st.write("- Own-side field position increases the cost of failing.")
 
 st.divider()
 
@@ -150,3 +189,4 @@ st.divider()
 st.caption(
     "Version 1 prototype. Conversion probability is estimated using a Random Forest model trained on nflverse fourth-down attempt data. Expected value logic is simplified and intended for analytical/educational purposes."
 )
+
