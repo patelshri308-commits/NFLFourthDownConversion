@@ -186,6 +186,21 @@ st.write(f"""
 
 st.divider()
 
+st.divider()
+
+st.subheader("Version 1 Notes")
+
+st.write("""
+This simulator is a Version 1 prototype designed to demonstrate fourth-down decision modeling.
+
+Current limitations:
+- The app evaluates only the expected value of going for it.
+- Punt and field-goal alternatives are not yet modeled.
+- Expected value estimates are simplified.
+- The model does not currently include personnel, play call, weather, defensive alignment, or team-specific tendencies.
+- Conversion probability is based on historical nflverse fourth-down attempt data.
+""")
+
 st.caption(
     "Version 1 prototype. Conversion probability is estimated using a Random Forest model trained on nflverse fourth-down attempt data. Expected value logic is simplified and intended for analytical/educational purposes."
 )
