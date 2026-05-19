@@ -2,15 +2,24 @@ import pandas as pd
 import streamlit as st
 from sklearn.ensemble import RandomForestClassifier
 
+st.set_page_config(
+    page_title="NFL Fourth-Down Decision Simulator",
+    page_icon="🏈",
+    layout="centered"
+)
+
 st.title("NFL Fourth-Down Decision Simulator")
 
 st.write(
-    "Estimate whether going for it on fourth down is reasonable based on distance, field position, score state, and time remaining."
+    "Compare fourth-down options using conversion probability, expected value, "
+    "field goal logic, punt logic, and basic score-time strategy."
 )
+
 
 @st.cache_data
 def load_data():
     return pd.read_csv("fourth_down_model_data.csv")
+
 
 @st.cache_resource
 def train_model(data):
@@ -18,7 +27,7 @@ def train_model(data):
 
     X = pd.concat(
         [
-            data[["score_differential", "game_seconds_remaining"]],
+            data[["ydstogo", "score_differential", "game_seconds_remaining"]],
             situation_dummies
         ],
         axis=1
@@ -35,6 +44,239 @@ def train_model(data):
     model.fit(X, y)
 
     return model, X.columns
+
+
+def get_distance_bucket(yards_to_go):
+    if yards_to_go <= 2:
+        return "Short"
+    elif yards_to_go <= 5:
+        return "Medium"
+    else:
+        return "Long"
+
+
+def get_field_zone(yardline_100):
+    if yardline_100 <= 20:
+        return "Red Zone"
+    elif yardline_100 <= 50:
+        return "Opponent Territory"
+    elif yardline_100 <= 80:
+        return "Midfield Area"
+    else:
+        return "Own Territory"
+
+
+def get_field_bin(yardline_100):
+    if yardline_100 <= 10:
+        return "Inside 10"
+    elif yardline_100 <= 20:
+        return "10-20"
+    elif yardline_100 <= 40:
+        return "20-40"
+    elif yardline_100 <= 60:
+        return "40-60"
+    elif yardline_100 <= 80:
+        return "60-80"
+    else:
+        return "80-100"
+
+
+def estimate_success_value(yardline_100, yards_to_go, base_ep_success):
+    if yardline_100 <= 5 and yards_to_go <= 2:
+        return 5.5
+    elif yardline_100 <= 10 and yards_to_go <= 2:
+        return 4.5
+    else:
+        return base_ep_success
+
+
+def estimate_failure_value(yardline_100):
+    if yardline_100 <= 10:
+        return -0.5
+    elif yardline_100 <= 20:
+        return -0.8
+    elif yardline_100 <= 40:
+        return -1.5
+    elif yardline_100 <= 60:
+        return -2.0
+    else:
+        return -2.5
+
+
+def estimate_fg_probability(distance):
+    if distance < 30:
+        return 0.95
+    elif distance < 40:
+        return 0.88
+    elif distance < 50:
+        return 0.75
+    elif distance < 60:
+        return 0.55
+    else:
+        return 0.25
+
+
+def estimate_fg_miss_cost(yardline_100):
+    if yardline_100 <= 20:
+        return -0.8
+    elif yardline_100 <= 35:
+        return -1.2
+    elif yardline_100 <= 50:
+        return -1.8
+    else:
+        return -2.5
+
+
+def estimate_fg_ev(yardline_100):
+    field_goal_distance = yardline_100 + 17
+    fg_probability = estimate_fg_probability(field_goal_distance)
+    miss_cost = estimate_fg_miss_cost(yardline_100)
+
+    fg_ev = (fg_probability * 3) + ((1 - fg_probability) * miss_cost)
+
+    return {
+        "field_goal_distance": field_goal_distance,
+        "fg_probability": fg_probability,
+        "miss_cost": miss_cost,
+        "fg_ev": fg_ev
+    }
+
+
+def estimate_punt_ev(yardline_100):
+    if yardline_100 <= 40:
+        net_punt = 30
+    elif yardline_100 <= 60:
+        net_punt = 40
+    else:
+        net_punt = 45
+
+    opponent_start_yardline = max(1, yardline_100 - net_punt)
+
+    if opponent_start_yardline <= 10:
+        punt_ev = 0.6
+    elif opponent_start_yardline <= 20:
+        punt_ev = 0.3
+    elif opponent_start_yardline <= 40:
+        punt_ev = -0.2
+    elif opponent_start_yardline <= 60:
+        punt_ev = -0.7
+    else:
+        punt_ev = -1.2
+
+    return {
+        "net_punt": net_punt,
+        "opponent_start_yardline": opponent_start_yardline,
+        "punt_ev": punt_ev
+    }
+
+
+def estimate_go_for_it_value(
+    yards_to_go,
+    yardline_100,
+    score_differential,
+    game_seconds_remaining,
+    situation_model,
+    model_columns
+):
+    distance_bucket = get_distance_bucket(yards_to_go)
+    field_zone = get_field_zone(yardline_100)
+    situation = f"{distance_bucket}_{field_zone}"
+    situation_col = f"situation_{situation}"
+
+    input_row = pd.DataFrame(0, index=[0], columns=model_columns)
+
+    input_row.loc[0, "ydstogo"] = yards_to_go
+    input_row.loc[0, "score_differential"] = score_differential
+    input_row.loc[0, "game_seconds_remaining"] = game_seconds_remaining
+
+    if situation_col in input_row.columns:
+        input_row.loc[0, situation_col] = 1
+
+    conversion_probability = situation_model.predict_proba(input_row)[0, 1]
+
+    estimated_success_yardline = max(yardline_100 - yards_to_go, 1)
+    success_bin = get_field_bin(estimated_success_yardline)
+
+    base_success_values = {
+        "Inside 10": 2.65,
+        "10-20": 2.17,
+        "20-40": 2.68,
+        "40-60": 2.40,
+        "60-80": 2.08,
+        "80-100": 1.27
+    }
+
+    base_ep_success = base_success_values.get(success_bin, 0)
+
+    ep_success = estimate_success_value(
+        yardline_100,
+        yards_to_go,
+        base_ep_success
+    )
+
+    ep_failure = estimate_failure_value(yardline_100)
+
+    ev_go = (
+        conversion_probability * ep_success
+        +
+        (1 - conversion_probability) * ep_failure
+    )
+
+    return {
+        "conversion_probability": conversion_probability,
+        "ep_success": ep_success,
+        "ep_failure": ep_failure,
+        "ev_go": ev_go,
+        "distance_bucket": distance_bucket,
+        "field_zone": field_zone,
+        "situation": situation
+    }
+
+
+def has_touchdown_urgency(score_differential, game_seconds_remaining):
+    return score_differential <= -7 and game_seconds_remaining <= 600
+
+
+def compare_decisions_with_strategy(
+    go_ev,
+    fg_ev,
+    punt_ev,
+    yards_to_go,
+    score_differential,
+    game_seconds_remaining
+):
+    options = {
+        "Go For It": go_ev,
+        "Attempt Field Goal": fg_ev,
+        "Punt": punt_ev
+    }
+
+    base_recommendation = max(options, key=options.get)
+
+    touchdown_urgency = has_touchdown_urgency(
+        score_differential,
+        game_seconds_remaining
+    )
+
+    if touchdown_urgency and yards_to_go <= 3:
+        final_recommendation = "Go For It"
+        strategy_note = (
+            "Touchdown urgency is active, so the simulator favors going for it "
+            "despite the base expected-value recommendation."
+        )
+    else:
+        final_recommendation = base_recommendation
+        strategy_note = (
+            "Recommendation is based on the highest expected-value option."
+        )
+
+    return {
+        "base_recommendation": base_recommendation,
+        "final_recommendation": final_recommendation,
+        "touchdown_urgency": touchdown_urgency,
+        "strategy_note": strategy_note
+    }
+
 
 data = load_data()
 model, model_columns = train_model(data)
@@ -66,142 +308,116 @@ game_seconds_remaining = st.slider(
     3600,
     900
 )
+
 st.info(
-    f"Situation: 4th & {yards_to_go} from the {yardline_100}-yardline "
-    f"with {game_seconds_remaining} seconds remaining."
+    f"Situation: 4th & {yards_to_go} from {yardline_100} yards away from the opponent end zone, "
+    f"score differential {score_differential}, with {game_seconds_remaining} seconds remaining."
 )
 
-# Distance bucket
-if yards_to_go <= 2:
-    distance_bucket = "Short"
-elif yards_to_go <= 5:
-    distance_bucket = "Medium"
-else:
-    distance_bucket = "Long"
+go_result = estimate_go_for_it_value(
+    yards_to_go=yards_to_go,
+    yardline_100=yardline_100,
+    score_differential=score_differential,
+    game_seconds_remaining=game_seconds_remaining,
+    situation_model=model,
+    model_columns=model_columns
+)
 
-# Field zone
-if yardline_100 <= 20:
-    field_zone = "Red Zone"
-elif yardline_100 <= 50:
-    field_zone = "Opponent Territory"
-elif yardline_100 <= 80:
-    field_zone = "Midfield Area"
-else:
-    field_zone = "Own Territory"
+fg_result = estimate_fg_ev(yardline_100)
+punt_result = estimate_punt_ev(yardline_100)
 
-situation = f"{distance_bucket}_{field_zone}"
-situation_col = f"situation_{situation}"
-
-# Build model input row
-input_row = pd.DataFrame(0, index=[0], columns=model_columns)
-
-input_row.loc[0, "score_differential"] = score_differential
-input_row.loc[0, "game_seconds_remaining"] = game_seconds_remaining
-
-if situation_col in input_row.columns:
-    input_row.loc[0, situation_col] = 1
-
-conversion_probability = model.predict_proba(input_row)[0, 1]
-
-if conversion_probability >= 0.70:
-    confidence = "High"
-elif conversion_probability >= 0.45:
-    confidence = "Moderate"
-else:
-    confidence = "Low"
-
-# Expected points logic
-if yardline_100 <= 20:
-    ep_success = 3.0
-elif yardline_100 <= 50:
-    ep_success = 2.3
-else:
-    ep_success = 1.5
-
-if yardline_100 <= 20:
-    ep_failure = -0.8
-elif yardline_100 <= 50:
-    ep_failure = -1.5
-else:
-    ep_failure = -2.5
-
-ev_go = (
-    conversion_probability * ep_success
-    +
-    (1 - conversion_probability) * ep_failure
+decision = compare_decisions_with_strategy(
+    go_ev=go_result["ev_go"],
+    fg_ev=fg_result["fg_ev"],
+    punt_ev=punt_result["punt_ev"],
+    yards_to_go=yards_to_go,
+    score_differential=score_differential,
+    game_seconds_remaining=game_seconds_remaining
 )
 
 st.divider()
 
-st.subheader("Estimated Decision")
+st.subheader("Decision Recommendation")
 
-st.metric("Conversion Probability", f"{conversion_probability:.1%}")
-st.metric("Expected Value of Going For It", round(ev_go, 2))
-st.metric("Conversion Confidence", confidence)
-
-if ev_go > 0:
+if decision["final_recommendation"] == "Go For It":
     st.success("Recommendation: Go For It")
+elif decision["final_recommendation"] == "Attempt Field Goal":
+    st.info("Recommendation: Attempt Field Goal")
 else:
-    st.error("Recommendation: Do Not Go For It")
+    st.warning("Recommendation: Punt")
 
-st.subheader("Decision Explanation")
+st.write(f"**Base EV Recommendation:** {decision['base_recommendation']}")
+st.write(f"**Final Strategy Recommendation:** {decision['final_recommendation']}")
 
-if ev_go > 0:
-    st.write(
-        "The model recommends going for it because the expected value is positive. "
-        "This means the estimated reward of converting outweighs the estimated cost of failing."
-    )
-else:
-    st.write(
-        "The model recommends not going for it because the expected value is negative. "
-        "This means the estimated cost of failing outweighs the estimated reward of converting."
-    )
+if decision["touchdown_urgency"]:
+    st.warning("Touchdown urgency adjustment is active.")
 
-if yards_to_go <= 2:
-    st.write("- Short yardage improves the likelihood of conversion.")
-elif yards_to_go <= 5:
-    st.write("- Medium distance creates a more balanced risk/reward decision.")
-else:
-    st.write("- Long distance lowers the likelihood of conversion.")
-
-if yardline_100 <= 20:
-    st.write("- Red zone field position increases the value of converting but also changes the risk profile.")
-elif yardline_100 <= 50:
-    st.write("- Opponent territory creates a strong decision point because punting or kicking may have limited value.")
-else:
-    st.write("- Own-side field position increases the cost of failing.")
+st.caption(decision["strategy_note"])
 
 st.divider()
 
-st.subheader("Model Context")
+st.subheader("Expected Value Comparison")
 
-st.write(f"""
-**Situation Type:** {situation}  
+col1, col2, col3 = st.columns(3)
 
-- **Distance Bucket:** {distance_bucket}
-- **Field Zone:** {field_zone}
-- **Score Differential:** {score_differential}
-- **Game Seconds Remaining:** {game_seconds_remaining}
+with col1:
+    st.metric("Go For It EV", round(go_result["ev_go"], 2))
+
+with col2:
+    st.metric("Field Goal EV", round(fg_result["fg_ev"], 2))
+
+with col3:
+    st.metric("Punt EV", round(punt_result["punt_ev"], 2))
+
+st.divider()
+
+st.subheader("Model Details")
+
+st.metric(
+    "Conversion Probability",
+    f"{go_result['conversion_probability']:.1%}"
+)
+
+st.write(f"**Situation Type:** {go_result['situation']}")
+st.write(f"**Distance Bucket:** {go_result['distance_bucket']}")
+st.write(f"**Field Zone:** {go_result['field_zone']}")
+
+st.write(f"**Field Goal Distance:** {fg_result['field_goal_distance']} yards")
+st.write(f"**FG Make Probability:** {fg_result['fg_probability']:.1%}")
+st.write(f"**Estimated Net Punt:** {punt_result['net_punt']} yards")
+st.write(
+    f"**Estimated Opponent Start After Punt:** "
+    f"{punt_result['opponent_start_yardline']} yards from opponent end zone"
+)
+
+st.divider()
+
+st.subheader("How to Interpret This")
+
+st.write("""
+This simulator compares three fourth-down decisions:
+
+- **Go For It**: uses a Random Forest conversion model and expected value logic.
+- **Field Goal**: estimates field goal distance, make probability, and missed-kick cost.
+- **Punt**: estimates net punt distance and resulting field-position value.
+
+The final recommendation may differ from the base expected-value recommendation when touchdown urgency is active.
 """)
 
 st.divider()
 
-st.divider()
-
-st.subheader("Version 1 Notes")
+st.subheader("Version 2 Notes")
 
 st.write("""
-This simulator is a Version 1 prototype designed to demonstrate fourth-down decision modeling.
+This is a Version 2 prototype.
 
 Current limitations:
-- The app evaluates only the expected value of going for it.
-- Punt and field-goal alternatives are not yet modeled.
-- Expected value estimates are simplified.
-- The model does not currently include personnel, play call, weather, defensive alignment, or team-specific tendencies.
-- Conversion probability is based on historical nflverse fourth-down attempt data.
+- Expected values are simplified estimates.
+- The simulator does not yet use a full win-probability model.
+- Weather, personnel, kicker quality, defensive alignment, and team-specific tendencies are not included.
+- Touchdown urgency is handled with a simple strategy-aware rule.
 """)
 
 st.caption(
-    "Version 1 prototype. Conversion probability is estimated using a Random Forest model trained on nflverse fourth-down attempt data. Expected value logic is simplified and intended for analytical/educational purposes."
+    "Built for educational and analytical purposes using nflverse fourth-down data."
 )
-
